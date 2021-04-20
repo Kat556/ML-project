@@ -1,18 +1,12 @@
 import pandas as pd
-import sys
 import re
-import nltk
-import matplotlib.pyplot as plt
-from nltk.stem import PorterStemmer
-from nltk.stem.wordnet import WordNetLemmatizer
-from nltk.corpus import stopwords
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction._stop_words import ENGLISH_STOP_WORDS
+from nltk.stem.porter import PorterStemmer
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import train_test_split
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-from sklearn.preprocessing import StandardScaler
-
-sys.stdout = open('knnexample.txt', 'w')
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, roc_auc_score
+from nltk.stem.wordnet import WordNetLemmatizer
+from sklearn.linear_model import LogisticRegression
 
 imdb_reviews = pd.read_csv('imdb_labelled.txt', sep='\t', header=None)
 imdb_reviews.columns = ['comments', 'ranking']
@@ -24,18 +18,36 @@ processed_features = []
 for sentence in range(0, len(features)):
     # Remove all the special characters
     processed_feature = re.sub(r'\W', ' ', str(features[sentence]))
+
     # remove all single characters
-    processed_feature = re.sub(r'\s+[a-zA-Z]\s+', ' ', processed_feature)
+    processed_feature= re.sub(r'\s+[a-zA-Z]\s+', ' ', processed_feature)
+
     # Remove single characters from the start
     processed_feature = re.sub(r'\^[a-zA-Z]\s+', ' ', processed_feature)
+
     # Substituting multiple spaces with single space
     processed_feature = re.sub(r'\s+', ' ', processed_feature, flags=re.I)
+
     # Removing prefixed 'b'
     processed_feature = re.sub(r'^b\s+', '', processed_feature)
+
     # Converting to Lowercase
     processed_feature = processed_feature.lower()
 
     processed_features.append(processed_feature)
+
+english_stop_words = ENGLISH_STOP_WORDS
+
+def remove_stop_words(corpus):
+    removed_stop_words = []
+    for review in corpus:
+        removed_stop_words.append(
+            ' '.join([word for word in review.split()
+                      if word not in english_stop_words])
+        )
+    return removed_stop_words
+
+processed_features = remove_stop_words(processed_features)
 
 single_review = []
 stemmed_reviews = []
@@ -55,43 +67,17 @@ for review in stemmed_reviews:
     lemmed_reviews.append(' '.join(single_review))
     single_review = []
 
-vectorizer = TfidfVectorizer(max_features=2500, min_df=7, max_df=0.8, stop_words=stopwords.words('english'))
-lemmed_reviews = vectorizer.fit_transform(lemmed_reviews).toarray()
+ngram_vector = CountVectorizer(binary=True, ngram_range=(1, 2))
+lemmed_reviews = ngram_vector.fit_transform(lemmed_reviews).toarray()
 
-X_train, X_test, y_train, y_test = train_test_split(lemmed_reviews, labels, test_size=.2, random_state=219)
+X_train, X_test, y_train, y_test = train_test_split(lemmed_reviews, labels, train_size=.75, random_state=97)
 
-scaler = StandardScaler()
-scaler.fit(X_train, y_train)
+lr = LogisticRegression(C=4)
+lr.fit(X_train, y_train)
 
-accuracies = []
+y_pred = lr.predict(X_test)
 
-for i in range(2,151):
-    print('\nk =',i)
-
-    classifier = KNeighborsClassifier(n_neighbors=i, metric = 'jaccard')
-    classifier.fit(X_train, y_train)
-    
-    y_prediction = classifier.predict(X_test)
-    
-    print(confusion_matrix(y_test, y_prediction))
-    print(classification_report(y_test, y_prediction))
-    print(accuracy_score(y_test, y_prediction))
-    accuracies.append(accuracy_score(y_test, y_prediction))
-    
-curve = pd.DataFrame(accuracies, columns = ['accuracy'])
-curve.index.name = i
-a = curve.plot(title = 'graph')
-a.set_ylabel('accuracy_score')
-a.set_xlabel('k_values')
-
-
-#classifier = KNeighborsClassifier(n_neighbors=45, metric='minkowski', algorithm='kd_tree', leaf_size=1)
-
-#classifier.fit(X_train, y_train)
-
-#y_prediction = classifier.predict(X_test)
-
-#print(confusion_matrix(y_test, y_prediction))
-#print(classification_report(y_test, y_prediction))
-#print(accuracy_score(y_test, y_prediction))
+print(confusion_matrix(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+print(accuracy_score(y_test, y_pred))
 
