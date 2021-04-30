@@ -1,97 +1,82 @@
-import pandas as pd
-import sys
 import re
-import nltk
-import matplotlib.pyplot as plt
-from nltk.stem import PorterStemmer
-from nltk.stem.wordnet import WordNetLemmatizer
+import string
+import random
+from nltk import classify
+from nltk import NaiveBayesClassifier
 from nltk.corpus import stopwords
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-from sklearn.preprocessing import StandardScaler
-
-sys.stdout = open('knnexample.txt', 'w')
-
-imdb_reviews = pd.read_csv('imdb_labelled.txt', sep='\t', header=None)
-imdb_reviews.columns = ['comments', 'ranking']
-
-features = imdb_reviews.comments.values
-labels = imdb_reviews.ranking.values
-processed_features = []
-
-for sentence in range(0, len(features)):
-    # Remove all the special characters
-    processed_feature = re.sub(r'\W', ' ', str(features[sentence]))
-    # remove all single characters
-    processed_feature = re.sub(r'\s+[a-zA-Z]\s+', ' ', processed_feature)
-    # Remove single characters from the start
-    processed_feature = re.sub(r'\^[a-zA-Z]\s+', ' ', processed_feature)
-    # Substituting multiple spaces with single space
-    processed_feature = re.sub(r'\s+', ' ', processed_feature, flags=re.I)
-    # Removing prefixed 'b'
-    processed_feature = re.sub(r'^b\s+', '', processed_feature)
-    # Converting to Lowercase
-    processed_feature = processed_feature.lower()
-
-    processed_features.append(processed_feature)
-
-single_review = []
-stemmed_reviews = []
-stemmer = PorterStemmer()
-for review in processed_features:
-    for word in review.split():
-        single_review.append(stemmer.stem(word))
-    stemmed_reviews.append(' '.join(single_review))
-    single_review = []
-
-single_review = []
-lemmed_reviews = []
-lemmatizer = WordNetLemmatizer()
-for review in stemmed_reviews:
-    for word in review.split():
-        single_review.append(lemmatizer.lemmatize(word))
-    lemmed_reviews.append(' '.join(single_review))
-    single_review = []
-
-vectorizer = TfidfVectorizer(max_features=2500, min_df=7, max_df=0.8, stop_words=stopwords.words('english'))
-lemmed_reviews = vectorizer.fit_transform(lemmed_reviews).toarray()
-
-X_train, X_test, y_train, y_test = train_test_split(lemmed_reviews, labels, test_size=.2, random_state=219)
-
-scaler = StandardScaler()
-scaler.fit(X_train, y_train)
-
-accuracies = []
-
-for i in range(2,151):
-    print('\nk =',i)
-
-    classifier = KNeighborsClassifier(n_neighbors=i, metric = 'jaccard')
-    classifier.fit(X_train, y_train)
-    
-    y_prediction = classifier.predict(X_test)
-    
-    print(confusion_matrix(y_test, y_prediction))
-    print(classification_report(y_test, y_prediction))
-    print(accuracy_score(y_test, y_prediction))
-    accuracies.append(accuracy_score(y_test, y_prediction))
-    
-curve = pd.DataFrame(accuracies, columns = ['accuracy'])
-curve.index.name = i
-a = curve.plot(title = 'graph')
-a.set_ylabel('accuracy_score')
-a.set_xlabel('k_values')
+from nltk.tag import pos_tag
+from nltk.tokenize import word_tokenize
+from nltk.stem.wordnet import WordNetLemmatizer
 
 
-#classifier = KNeighborsClassifier(n_neighbors=45, metric='minkowski', algorithm='kd_tree', leaf_size=1)
+positive_reviews = open('imdb_pos.txt').read()
+negative_reviews = open('imdb_neg.txt').read()
+positive_tokens = []
+negative_tokens = []
 
-#classifier.fit(X_train, y_train)
+positive_sentences = [p for p in positive_reviews.split('\n') if p]
+negative_sentences = [p for p in negative_reviews.split('\n') if p]
 
-#y_prediction = classifier.predict(X_test)
 
-#print(confusion_matrix(y_test, y_prediction))
-#print(classification_report(y_test, y_prediction))
-#print(accuracy_score(y_test, y_prediction))
+for sentence in positive_sentences:
+    positive_tokens.append(word_tokenize(sentence))
+
+for sentence in negative_sentences:
+    negative_tokens.append(word_tokenize(sentence))
+
+stop_words = stopwords.words('english')
+
+# Clean data
+
+
+def remove_noise(tweet_tokens, stop_words = ()):
+
+    cleaned_tokens = []
+
+    for token, tag in pos_tag(tweet_tokens):
+        token = re.sub('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+#]|[!*\(\),]|'\
+                       '(?:%[0-9a-fA-F][0-9a-fA-F]))+','', token)
+        token = re.sub("(@[A-Za-z0-9_]+)","", token)
+
+        if tag.startswith("NN"):
+            pos = 'n'
+        elif tag.startswith('VB'):
+            pos = 'v'
+        else:
+            pos = 'a'
+
+        lemmatizer = WordNetLemmatizer()
+        token = lemmatizer.lemmatize(token, pos)
+
+        if len(token) > 0 and token not in string.punctuation and token.lower() not in stop_words:
+            cleaned_tokens.append(token.lower())
+    return cleaned_tokens
+
+# Create test/training sets
+
+def get_reviews_for_model(cleaned_tokens_list):
+    for tokens in cleaned_tokens_list:
+        yield dict([token, True] for token in tokens)
+
+
+positive_review_tokens_for_model = get_reviews_for_model(positive_tokens)
+negative_review_tokens_for_model = get_reviews_for_model(negative_tokens)
+
+positive_review_dataset = [(review_dict, "Positive")
+                           for review_dict in positive_review_tokens_for_model]
+
+negative_review_dataset = [(review_dict, "Negative")
+                           for review_dict in negative_review_tokens_for_model]
+
+review_dataset = positive_review_dataset + negative_review_dataset
+
+random.shuffle(review_dataset)
+
+
+review_train_data = review_dataset[:700]
+review_test_data = review_dataset[700:]
+
+review_classifier = NaiveBayesClassifier.train(review_train_data)
+
+print("IMDB accuracy is:", classify.accuracy(review_classifier, review_test_data))
 
